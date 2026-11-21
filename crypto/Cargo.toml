@@ -1,0 +1,24 @@
+[package]
+name = "neotales-vaults-crypto"
+version = "0.0.0-alpha.0"
+edition = "2024"
+rust-version = "1.100"
+authors = ["x0craft"]
+license = "MIT"
+description = "Key and certificate utilities for neotales-vaults"
+repository = "https://github.com/neotales/rs-vaults"
+readme = "README.md"
+
+[dependencies]
+neotales-vaults-core = { path = "../core", version = "=0.0.0-alpha.0" }
+neotales-x509 = "=0.0.0-alpha.1"
+rcgen = { version = "0.14", features = ["zeroize"] }
+time = "0.3"
+x509-parser = "0.18"
+zeroize = "1.9"
+
+[dev-dependencies]
+neotales-vaults-age-json = { path = "../age-json", version = "=0.0.0-alpha.0" }
+neotales-age = "=0.0.0-alpha.1"
+tempfile = "3"
+x509-parser = { version = "0.18", features = ["verify"] }
