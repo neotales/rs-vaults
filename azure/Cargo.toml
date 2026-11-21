@@ -1,0 +1,23 @@
+[package]
+name = "neotales-vaults-azure"
+version = "0.0.0-alpha.0"
+edition = "2024"
+rust-version = "1.100"
+authors = ["x0craft"]
+license = "MIT"
+description = "Azure Key Vault secret provider for neotales-vaults"
+repository = "https://github.com/neotales/rs-vaults"
+readme = "README.md"
+
+[dependencies]
+neotales-vaults-core = { path = "../core", version = "=0.0.0-alpha.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "3.5"
+url = "2"
+zeroize = { version = "1.9", features = ["derive"] }
+
+[dev-dependencies]
+neotales-vaults-local-crypto = { path = "../local-crypto", version = "=0.0.0-alpha.0" }
+neotales-vaults-local-json = { path = "../local-json", version = "=0.0.0-alpha.0" }
+tempfile = "3"
