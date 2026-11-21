@@ -1,0 +1,93 @@
+name: ci
+
+# A virtual workspace with several independently published crates.
+
+on:
+  push:
+    # Every branch, not only the default one: a branch filter hides a failure
+    # until the work lands. No path filter either, because a change to a README
+    # can still be the change that breaks the build.
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  check:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: ci
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --all-targets --all-features
+
+      - name: Doc tests
+        run: cargo test --workspace --doc --all-features
+
+      - name: Documentation
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --workspace --all-features --no-deps
+
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Installs 1.100.0, the channel in rust-toolchain.toml and the minimum
+      # supported version declared in Cargo.toml. Do not float to stable here:
+      # a job named msrv that tests stable proves nothing.
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: msrv
+
+      - name: Check the declared minimum Rust version
+        run: |
+          set -euo pipefail
+          cargo metadata --no-deps --format-version 1 | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          members = set(data["workspace_members"])
+          packages = [p for p in data["packages"] if p["id"] in members]
+          if not packages:
+              sys.exit("workspace has no packages")
+          for package in packages:
+              print("{}: {}".format(package["name"], package.get("rust_version")))
+          if any(p.get("rust_version") != "1.100" for p in packages):
+              sys.exit("all workspace packages must declare rust-version 1.100")
+          '
+
+      - name: Test on the minimum supported Rust version
+        run: cargo test --workspace --all-targets --all-features
+
+      - name: Doc tests on the minimum Rust version
+        run: cargo test --workspace --doc --all-features

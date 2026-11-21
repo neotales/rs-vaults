@@ -1,0 +1,80 @@
+name: audit
+
+# Runs every day so a new advisory lands as a red build on a repository nobody
+# touched, not as a surprise during a release.
+
+on:
+  schedule:
+    - cron: "38 3 * * *"
+  push:
+    # Every branch, not only the default one. A branch filter hides a failure
+    # until the work lands. Path filters below still apply.
+    branches:
+      - "**"
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "deny.toml"
+      - ".github/workflows/audit.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "deny.toml"
+      - ".github/workflows/audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  deny:
+    name: cargo deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: audit-deny
+
+      - name: Install cargo-deny 0.20.2
+        run: cargo install cargo-deny --version 0.20.2 --locked
+
+      - name: Check advisories, licences, bans, and sources
+        run: cargo deny check
+
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-key: audit-cargo-audit
+
+      # Pin the audit tool, not `latest`: a toolchain that changes without a
+      # diff can turn the scheduled run red on its own. 0.22.x is the line that
+      # loads advisories carrying CVSS 4.0 fields. 0.21.2 exits before scanning
+      # on those, so the whole audit is dead rather than red.
+      - name: Install cargo-audit 0.22.2
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      # `cargo audit` reads no config file. An advisory ignore lives in
+      # deny.toml with its reason and delete condition, and has to be repeated
+      # here as `--ignore RUSTSEC-XXXX-YYYY` for a crate that has one. This
+      # template has none, so the command takes no flag. Do not add one to make
+      # a red build green.
+      - name: Check the lockfile against the advisory database
+        run: cargo audit
