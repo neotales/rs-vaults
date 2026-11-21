@@ -1,0 +1,18 @@
+[package]
+name = "neotales-vaults-vault"
+version = "0.0.0-alpha.0"
+edition = "2024"
+rust-version = "1.100"
+authors = ["x0craft"]
+license = "MIT"
+description = "Vault KV v2 provider for neotales-vaults"
+repository = "https://github.com/neotales/rs-vaults"
+readme = "README.md"
+
+[dependencies]
+neotales-vaults-core = { path = "../core", version = "=0.0.0-alpha.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "3.5"
+url = "2"
+zeroize = { version = "1.9", features = ["derive"] }
