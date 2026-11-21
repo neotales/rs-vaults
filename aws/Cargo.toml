@@ -1,0 +1,26 @@
+[package]
+name = "neotales-vaults-aws"
+version = "0.0.0-alpha.0"
+edition = "2024"
+rust-version = "1.100"
+authors = ["x0craft"]
+license = "MIT"
+description = "AWS Secrets Manager provider for neotales-vaults"
+repository = "https://github.com/neotales/rs-vaults"
+readme = "README.md"
+
+[dependencies]
+neotales-vaults-core = { path = "../core", version = "=0.0.0-alpha.0" }
+aws-sdk-secretsmanager = "=1.129.0"
+aws-types = "1"
+aws-smithy-types = "1"
+tokio = { version = "1", features = ["rt", "time", "net"] }
+url = "2"
+
+[dev-dependencies]
+aws-credential-types = "1"
+ureq = "3.5"
+base64 = "0.22"
+neotales-vaults-local-crypto = { path = "../local-crypto", version = "=0.0.0-alpha.0" }
+neotales-vaults-local-json = { path = "../local-json", version = "=0.0.0-alpha.0" }
+tempfile = "3"
