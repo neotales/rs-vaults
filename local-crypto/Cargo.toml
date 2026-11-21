@@ -1,0 +1,21 @@
+[package]
+name = "neotales-vaults-local-crypto"
+version = "0.0.0-alpha.0"
+edition = "2024"
+rust-version = "1.100"
+authors = ["x0craft"]
+license = "MIT"
+description = "Local value encryption with versioned vault-backed keys"
+repository = "https://github.com/neotales/rs-vaults"
+readme = "README.md"
+
+[dependencies]
+neotales-vaults-core = { path = "../core", version = "=0.0.0-alpha.0" }
+aes-gcm = { version = "0.10", features = ["zeroize"] }
+aes = { version = "0.8", features = ["zeroize"] }
+base64 = "0.22"
+getrandom = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+zeroize = "1.9"
