@@ -1,0 +1,7 @@
+[toolchain]
+channel = "1.100.0"
+components = ["clippy", "rustfmt", "rust-src"]
+profile = "minimal"
+
+[env]
+CARGO_INCREMENTAL = "0"

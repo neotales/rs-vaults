@@ -1,0 +1,18 @@
+[package]
+name = "neotales-vaults-core"
+version = "0.0.0-alpha.0"
+edition = "2024"
+rust-version = "1.100"
+authors = ["x0craft"]
+license = "MIT"
+description = "Provider-neutral vault interfaces and references"
+repository = "https://github.com/neotales/rs-vaults"
+readme = "README.md"
+
+[dependencies]
+neotales-retry = "=0.0.0-alpha.1"
+neotales-resilience = "=0.0.0-alpha.1"
+metrics = "0.24"
+tracing = "0.1"
+percent-encoding = "2"
+zeroize = { version = "1.9", features = ["derive"] }

@@ -1,0 +1,46 @@
+# Supply chain policy for one crate.
+#
+# Copied from the plab rs-lib workspace with the two RUSTSEC ignores removed.
+# Those entries name neotales-x509 and neotales-docker-compose, which are not in
+# this repository, so keeping them here would pre-approve an advisory for a
+# crate that may later pull the same dependency for a different reason. An
+# ignore belongs in the repository it was reasoned about.
+#
+# If this crate needs an ignore, add it here with a reason and a delete
+# condition, and never as a way to make a red build green. `cargo audit` reads
+# no config file, so the same ignore must also be repeated in audit.yml as an
+# `--ignore` flag. Two places, one reason: the reason and the delete condition
+# live here, next to the graph they were reasoned about.
+
+[graph]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+unmaintained = "transitive"
+ignore = []
+
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

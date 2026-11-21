@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = ["core", "vaults", "os", "keepass", "age-json", "age-sqlite", "vault", "infisical", "crypto", "vaultwarden", "azure", "local-crypto", "aws", "gcp", "local-json"]
