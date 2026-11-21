@@ -1,0 +1,24 @@
+[package]
+name = "neotales-vaults-age-sqlite"
+version = "0.0.0-alpha.0"
+edition = "2024"
+rust-version = "1.100"
+authors = ["x0craft"]
+license = "MIT"
+description = "Age-encrypted SQLite vault provider"
+repository = "https://github.com/neotales/rs-vaults"
+readme = "README.md"
+
+[dependencies]
+neotales-vaults-core = { path = "../core", version = "=0.0.0-alpha.0" }
+neotales-age = "=0.0.0-alpha.1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v7"] }
+zeroize = { version = "1.9", features = ["derive"] }
+tempfile = "3"
+time = { version = "0.3", features = ["parsing"] }
+
+[dev-dependencies]
+neotales-vaults = { path = "../vaults", version = "=0.0.0-alpha.0" }
