@@ -47,6 +47,10 @@ Google Cloud Secret Manager driver for provisioned secrets. It uses gRPC and a
 caller-provided OAuth bearer token; callers must refresh that token themselves.
 Reads accept concrete version numbers. Writes create a new version of an
 existing secret, and are not automatically retried.
+`EnsureSecret` can provision an absent secret with automatic replication and
+add its first version. Since provisioning and writing a version are separate
+operations, concurrent callers can create multiple versions, and a failure can
+leave an empty secret.
 
 HTTPS is required except for explicitly enabled literal-loopback HTTP for local
 emulators.

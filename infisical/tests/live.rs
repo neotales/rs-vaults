@@ -155,6 +155,25 @@ fn infisical_shared_secret_round_trip() {
         })
         .unwrap(),
     );
+    {
+        use neotales_vaults_core::EnsureSecret;
+        assert_eq!(
+            client
+                .ensure_value("test", "ENSURED", &SecretValue::new(b"created".to_vec()))
+                .unwrap()
+                .value
+                .expose(),
+            b"created"
+        );
+        assert_eq!(
+            client
+                .ensure_value("test", "ENSURED", &SecretValue::new(b"ignored".to_vec()))
+                .unwrap()
+                .value
+                .expose(),
+            b"created"
+        );
+    }
     client
         .set_secret("test", "TEST_SECRET", &SecretValue::new(b"first".to_vec()))
         .unwrap();

@@ -311,6 +311,9 @@ impl Drop for SecretJson {
 }
 
 impl Driver for VaultwardenDriver {
+    fn can_create_secret(&self) -> bool {
+        false
+    }
     fn supports(&self, capability: Capability) -> bool {
         matches!(capability, Capability::GetSecret | Capability::ListSecrets)
             || (matches!(capability, Capability::SetSecret | Capability::RemoveSecret)

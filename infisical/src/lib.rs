@@ -210,7 +210,7 @@ impl InfisicalDriver {
             .header("Authorization", authorization.as_str())
             .header("Accept", "application/json")
             .call()
-            .map_err(|_| err(ErrorKind::Provider, "Infisical transport failed"))
+            .map_err(|_| err(ErrorKind::Transient, "Infisical transport failed"))
     }
 }
 
@@ -408,7 +408,7 @@ impl Driver for InfisicalDriver {
             .send(body.as_slice())
             .map_err(|_| {
                 err(
-                    ErrorKind::Provider,
+                    ErrorKind::Transient,
                     "Infisical write transport failed; outcome may be unknown",
                 )
             })?;

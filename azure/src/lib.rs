@@ -377,7 +377,7 @@ impl Driver for AzureDriver {
             .send(body.as_slice())
             .map_err(|_| {
                 error(
-                    ErrorKind::Provider,
+                    ErrorKind::Transient,
                     "Azure write failed; outcome may be unknown",
                 )
             })?;

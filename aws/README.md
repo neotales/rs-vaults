@@ -44,6 +44,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 SDK shared configuration, including its credentials provider and region.
 The driver disables SDK retries. Reads support explicit version IDs. Writes
 update existing secrets; creation is deliberately a separate provisioning step.
+`EnsureSecret` is an exception: it creates a missing secret using AWS
+`CreateSecret` and reads the existing secret if another caller created it first.
 The caller controls credential refresh through the SDK. Custom HTTP endpoints
 require explicit opt-in and a literal loopback address.
 

@@ -1,6 +1,6 @@
 //! Opt-in disposable Floci Azure integration test.
 use neotales_vaults_azure::{AzureDriver, Config};
-use neotales_vaults_core::{Certificate, Client, GetOptions, Key, SecretValue};
+use neotales_vaults_core::{Certificate, Client, EnsureSecret, GetOptions, Key, SecretValue};
 use neotales_vaults_local_crypto::{Config as CryptoConfig, LocalCrypto};
 use std::{
     process::{Command, Stdio},
@@ -69,6 +69,22 @@ fn secret_versions_round_trip() {
             allow_http_loopback: true,
         })
         .unwrap(),
+    );
+    assert_eq!(
+        client
+            .ensure_value("azure", "ensured", &SecretValue::new(b"created".to_vec()))
+            .unwrap()
+            .value
+            .expose(),
+        b"created"
+    );
+    assert_eq!(
+        client
+            .ensure_value("azure", "ensured", &SecretValue::new(b"ignored".to_vec()))
+            .unwrap()
+            .value
+            .expose(),
+        b"created"
     );
     let first = client
         .set_secret("azure", "example", &SecretValue::new(b"first".to_vec()))

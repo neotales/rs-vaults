@@ -6,7 +6,7 @@ use aws_sdk_secretsmanager::{
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use neotales_vaults_aws::{AwsDriver, Config};
-use neotales_vaults_core::{Client, GetOptions, SecretValue};
+use neotales_vaults_core::{Client, EnsureSecret, GetOptions, SecretValue};
 use neotales_vaults_local_crypto::{Config as CryptoConfig, LocalCrypto};
 use std::{
     process::{Command, Stdio},
@@ -98,6 +98,14 @@ fn provisioned_secret_versions_round_trip() {
         })
         .unwrap(),
     );
+    let result = client
+        .ensure_value("aws", "ensured", &SecretValue::new(b"created".to_vec()))
+        .unwrap();
+    assert_eq!(result.value.expose(), b"created");
+    let result = client
+        .ensure_value("aws", "ensured", &SecretValue::new(b"ignored".to_vec()))
+        .unwrap();
+    assert_eq!(result.value.expose(), b"created");
     assert_eq!(
         client.get("aws", "example").unwrap().value.expose(),
         b"first"

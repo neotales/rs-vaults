@@ -241,9 +241,49 @@ impl Driver for VaultDriver {
             capability,
             Capability::GetSecret
                 | Capability::SetSecret
+                | Capability::EnsureSecret
                 | Capability::RemoveSecret
                 | Capability::ListSecrets
         )
+    }
+    fn ensure_secret(
+        &self,
+        vault: &str,
+        name: &str,
+        value: &SecretValue,
+    ) -> Result<Response<SecretValue>> {
+        let url = self.endpoint(vault, name)?;
+        if value.expose().len() > MAX_SECRET {
+            return Err(error(ErrorKind::InvalidInput, "secret exceeds size limit"));
+        }
+        let text = std::str::from_utf8(value.expose())
+            .map_err(|_| error(ErrorKind::InvalidInput, "Vault secret must be UTF-8"))?;
+        let status = self.send_write("POST", &url, text, true).map_err(|error| {
+            if error.kind == ErrorKind::Provider {
+                Error::new(
+                    ErrorKind::Transient,
+                    "Vault create failed; outcome may be unknown",
+                )
+            } else {
+                error
+            }
+        })?;
+        if (200..300).contains(&status) {
+            return Ok(Response {
+                value: value.clone(),
+                metadata: Metadata::default(),
+            });
+        }
+        if status == 400
+            && let Ok(existing) = self.get_secret(vault, name, &GetOptions::default())
+        {
+            return Ok(existing);
+        }
+        Self::status(status)?;
+        Err(error(
+            ErrorKind::Provider,
+            "unexpected Vault create response",
+        ))
     }
     fn list_secrets(&self, vault: &str) -> Result<Vec<String>> {
         let mut root = self.endpoint_for(vault, "placeholder", "metadata")?;
@@ -425,7 +465,7 @@ impl Driver for VaultDriver {
         }
         let response = request
             .call()
-            .map_err(|_| error(ErrorKind::Provider, "Vault read transport failed"))?;
+            .map_err(|_| error(ErrorKind::Transient, "Vault read transport failed"))?;
         Self::status(response.status().as_u16())?;
         let bytes = Zeroizing::new(
             response

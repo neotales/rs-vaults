@@ -70,6 +70,25 @@ struct RemovalRequest {
 }
 #[derive(Clone, PartialEq, Message)]
 struct Empty {}
+#[derive(Clone, PartialEq, Message)]
+struct CreateSecretRequest {
+    #[prost(string, tag = "1")]
+    parent: String,
+    #[prost(string, tag = "2")]
+    secret_id: String,
+    #[prost(message, optional, tag = "3")]
+    secret: Option<CreateSecret>,
+}
+#[derive(Clone, PartialEq, Message)]
+struct CreateSecret {
+    #[prost(message, optional, tag = "2")]
+    replication: Option<CreateReplication>,
+}
+#[derive(Clone, PartialEq, Message)]
+struct CreateReplication {
+    #[prost(message, optional, tag = "1")]
+    automatic: Option<Empty>,
+}
 
 // Minimal wire messages mirror Google's published v1 service and resources protos.
 #[derive(Clone, PartialEq, Message)]
@@ -243,9 +262,77 @@ impl Driver for GcpDriver {
             c,
             Capability::GetSecret
                 | Capability::SetSecret
+                | Capability::EnsureSecret
                 | Capability::ListSecrets
                 | Capability::RemoveSecret
         )
+    }
+    fn ensure_secret(
+        &self,
+        vault: &str,
+        name: &str,
+        value: &SecretValue,
+    ) -> Result<Response<SecretValue>> {
+        self.parent(vault, name)?;
+        if value.expose().len() > 65536 {
+            return Err(err(
+                ErrorKind::InvalidInput,
+                "GCP secret exceeds size limit",
+            ));
+        }
+        let project = format!("projects/{}", self.config.project);
+        execute(async {
+            let channel = self.channel().await?;
+            let mut client =
+                tonic::client::Grpc::new(channel).max_decoding_message_size(1024 * 1024);
+            client
+                .ready()
+                .await
+                .map_err(|_| err(ErrorKind::Transient, "GCP service unavailable"))?;
+            let mut request = self.request(
+                CreateSecretRequest {
+                    parent: project.clone(),
+                    secret_id: name.to_owned(),
+                    secret: Some(CreateSecret {
+                        replication: Some(CreateReplication {
+                            automatic: Some(Empty {}),
+                        }),
+                    }),
+                },
+                &project,
+            )?;
+            request.metadata_mut().insert(
+                "x-goog-request-params",
+                format!("parent={project}")
+                    .parse()
+                    .map_err(|_| err(ErrorKind::InvalidInput, "invalid GCP resource"))?,
+            );
+            let result: std::result::Result<tonic::Response<ListedSecret>, tonic::Status> = client
+                .unary(
+                    request,
+                    tonic::codegen::http::uri::PathAndQuery::from_static(
+                        "/google.cloud.secretmanager.v1.SecretManagerService/CreateSecret",
+                    ),
+                    tonic::codec::ProstCodec::default(),
+                )
+                .await;
+            match result {
+                Ok(_) => Ok(()),
+                Err(error) if error.code() == Code::AlreadyExists => Ok(()),
+                Err(error) => Err(status(error, true)),
+            }
+        })?;
+        match self.get_secret(vault, name, &GetOptions::default()) {
+            Ok(existing) => Ok(existing),
+            Err(error) if error.kind == ErrorKind::NotFound => {
+                let metadata = self.set_secret(vault, name, value)?;
+                Ok(Response {
+                    value: value.clone(),
+                    metadata,
+                })
+            }
+            Err(error) => Err(error),
+        }
     }
     fn list_secrets(&self, vault: &str) -> Result<Vec<String>> {
         if vault != self.config.vault {

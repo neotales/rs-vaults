@@ -136,9 +136,62 @@ impl Driver for AwsDriver {
             capability,
             Capability::GetSecret
                 | Capability::SetSecret
+                | Capability::EnsureSecret
                 | Capability::ListSecrets
                 | Capability::RemoveSecret
         )
+    }
+    fn ensure_secret(
+        &self,
+        vault: &str,
+        name: &str,
+        value: &SecretValue,
+    ) -> Result<Response<SecretValue>> {
+        self.check(vault, name)?;
+        if value.expose().len() > 65536 {
+            return Err(err(
+                ErrorKind::InvalidInput,
+                "AWS secret exceeds size limit",
+            ));
+        }
+        let request = self
+            .client
+            .create_secret()
+            .name(name)
+            .secret_binary(Blob::new(value.expose().to_vec()));
+        let created = execute(async move {
+            match request.send().await {
+                Ok(output) => Ok(Some(output.version_id().map(str::to_owned))),
+                Err(e)
+                    if e.as_service_error().and_then(|s| s.code())
+                        == Some("ResourceExistsException") =>
+                {
+                    Ok(None)
+                }
+                Err(
+                    aws_sdk_secretsmanager::error::SdkError::TimeoutError(_)
+                    | aws_sdk_secretsmanager::error::SdkError::DispatchFailure(_)
+                    | aws_sdk_secretsmanager::error::SdkError::ResponseError(_),
+                ) => Err(err(
+                    ErrorKind::Transient,
+                    "AWS create failed; outcome may be unknown",
+                )),
+                Err(e) => Err(err(
+                    kind(e.as_service_error().and_then(|s| s.code())),
+                    "AWS create failed; outcome may be unknown",
+                )),
+            }
+        })?;
+        match created {
+            Some(version) => Ok(Response {
+                value: value.clone(),
+                metadata: Metadata {
+                    version,
+                    ..Default::default()
+                },
+            }),
+            None => self.get_secret(vault, name, &GetOptions::default()),
+        }
     }
     fn list_secrets(&self, vault: &str) -> Result<Vec<String>> {
         if vault != self.vault {
@@ -249,7 +302,16 @@ impl Driver for AwsDriver {
         execute(async move {
             let output = request.send().await.map_err(|e| {
                 err(
-                    kind(e.as_service_error().and_then(|s| s.code())),
+                    if matches!(
+                        e,
+                        aws_sdk_secretsmanager::error::SdkError::TimeoutError(_)
+                            | aws_sdk_secretsmanager::error::SdkError::DispatchFailure(_)
+                            | aws_sdk_secretsmanager::error::SdkError::ResponseError(_)
+                    ) {
+                        ErrorKind::Transient
+                    } else {
+                        kind(e.as_service_error().and_then(|s| s.code()))
+                    },
                     "AWS secret read failed",
                 )
             })?;

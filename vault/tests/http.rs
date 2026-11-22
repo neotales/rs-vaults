@@ -1,4 +1,6 @@
-use neotales_vaults_core::{Client, ErrorKind, GetOptions, RemoveOptions, SecretValue};
+use neotales_vaults_core::{
+    Client, EnsureSecret, ErrorKind, GetOptions, RemoveOptions, SecretValue,
+};
 use neotales_vaults_vault::{Config, VaultDriver};
 use std::{
     io::{Read, Write},
@@ -62,6 +64,28 @@ fn client(address: String) -> Client {
         })
         .unwrap(),
     )
+}
+
+#[test]
+fn ensure_creates_with_cas_and_reads_concurrent_winner() {
+    let (address, rx, worker) = fixture(vec![
+        (404, "{}"),
+        (400, "{}"),
+        (
+            200,
+            r#"{"data":{"data":{"value":"winner"},"metadata":{"version":1}}}"#,
+        ),
+    ]);
+    let result = client(address)
+        .ensure_value("work", "name", &SecretValue::new(b"candidate".to_vec()))
+        .unwrap();
+    assert_eq!(result.value.expose(), b"winner");
+    assert!(rx.recv().unwrap().starts_with("GET "));
+    let create = rx.recv().unwrap();
+    assert!(create.starts_with("POST /v1/secret/data/name "));
+    assert!(create.contains(r#""cas":0"#));
+    assert!(rx.recv().unwrap().starts_with("GET "));
+    worker.join().unwrap();
 }
 
 #[test]

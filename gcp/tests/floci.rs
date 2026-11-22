@@ -1,6 +1,6 @@
 //! Opt-in disposable Floci GCP integration test.
 use base64::{Engine, engine::general_purpose::STANDARD};
-use neotales_vaults_core::{Client, GetOptions, RemoveOptions, SecretValue};
+use neotales_vaults_core::{Client, EnsureSecret, GetOptions, RemoveOptions, SecretValue};
 use neotales_vaults_gcp::{Config, GcpDriver};
 use neotales_vaults_local_crypto::{Config as CryptoConfig, LocalCrypto};
 use prost::Message;
@@ -122,6 +122,14 @@ fn provisioned_secret_versions_round_trip() {
         })
         .unwrap(),
     );
+    let created = client
+        .ensure_value("gcp", "ensured", &SecretValue::new(b"created".to_vec()))
+        .unwrap();
+    assert_eq!(created.value.expose(), b"created");
+    let existing = client
+        .ensure_value("gcp", "ensured", &SecretValue::new(b"ignored".to_vec()))
+        .unwrap();
+    assert_eq!(existing.value.expose(), b"created");
     let first = client
         .set_secret("gcp", "example", &SecretValue::new(b"first".to_vec()))
         .unwrap()
