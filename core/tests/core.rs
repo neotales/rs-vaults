@@ -1,6 +1,7 @@
 use neotales_vaults_core::{
-    Capability, Client, Delay, Driver, Error, ErrorKind, GetOptions, Metadata, RemoveOptions,
-    ResourceKind, Response, RetryPolicy, SecretMetadata, SecretValue, SetSecretOptions, VaultUri,
+    Capability, Client, Delay, Driver, EnsureSecret, Error, ErrorKind, GetOptions, Metadata,
+    RemoveOptions, ResourceKind, Response, RetryPolicy, SecretMetadata, SecretValue,
+    SetSecretOptions, VaultUri,
 };
 use std::sync::{
     Arc,
@@ -30,6 +31,103 @@ impl Driver for Example {
             },
         })
     }
+}
+
+#[test]
+fn ensure_retries_only_transient_errors() {
+    struct Fixture {
+        read: ErrorKind,
+        count: Arc<AtomicUsize>,
+    }
+    impl Driver for Fixture {
+        fn supports(&self, capability: Capability) -> bool {
+            matches!(capability, Capability::GetSecret | Capability::EnsureSecret)
+        }
+        fn get_secret(
+            &self,
+            _: &str,
+            _: &str,
+            _: &GetOptions,
+        ) -> Result<Response<SecretValue>, Error> {
+            Err(Error::new(self.read, "read failed"))
+        }
+        fn ensure_secret(
+            &self,
+            _: &str,
+            _: &str,
+            _: &SecretValue,
+        ) -> Result<Response<SecretValue>, Error> {
+            self.count.fetch_add(1, Ordering::SeqCst);
+            Err(Error::new(ErrorKind::Transient, "unknown outcome"))
+        }
+    }
+    let count = Arc::new(AtomicUsize::new(0));
+    let policy = RetryPolicy::new(2, Delay::Fixed(Duration::ZERO)).unwrap();
+    let client = Client::new(Fixture {
+        read: ErrorKind::PermissionDenied,
+        count: count.clone(),
+    })
+    .with_retry_policy(policy);
+    assert_eq!(
+        client
+            .ensure_value("v", "n", &SecretValue::new(b"x".to_vec()))
+            .unwrap_err()
+            .kind,
+        ErrorKind::PermissionDenied
+    );
+    assert_eq!(count.load(Ordering::SeqCst), 0);
+    let client = Client::new(Fixture {
+        read: ErrorKind::NotFound,
+        count: count.clone(),
+    })
+    .with_retry_policy(policy);
+    assert_eq!(
+        client
+            .ensure_value("v", "n", &SecretValue::new(b"x".to_vec()))
+            .unwrap_err()
+            .kind,
+        ErrorKind::Transient
+    );
+    assert_eq!(count.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn ensure_rechecks_after_an_ambiguous_write() {
+    struct Fixture(std::sync::Mutex<Option<SecretValue>>, AtomicUsize);
+    impl Driver for Fixture {
+        fn supports(&self, capability: Capability) -> bool {
+            matches!(capability, Capability::GetSecret | Capability::SetSecret)
+        }
+        fn get_secret(
+            &self,
+            _: &str,
+            _: &str,
+            _: &GetOptions,
+        ) -> Result<Response<SecretValue>, Error> {
+            self.0
+                .lock()
+                .unwrap()
+                .clone()
+                .map(|value| Response {
+                    value,
+                    metadata: Metadata::default(),
+                })
+                .ok_or_else(|| Error::new(ErrorKind::NotFound, "missing"))
+        }
+        fn set_secret(&self, _: &str, _: &str, value: &SecretValue) -> Result<Metadata, Error> {
+            self.1.fetch_add(1, Ordering::SeqCst);
+            *self.0.lock().unwrap() = Some(value.clone());
+            Err(Error::new(ErrorKind::Transient, "response lost"))
+        }
+    }
+    let fixture = Arc::new(Fixture(std::sync::Mutex::new(None), AtomicUsize::new(0)));
+    let client = Client::from_shared(fixture.clone())
+        .with_retry_policy(RetryPolicy::new(2, Delay::Fixed(Duration::ZERO)).unwrap());
+    let result = client
+        .ensure_value("v", "n", &SecretValue::new(b"value".to_vec()))
+        .unwrap();
+    assert_eq!(result.value.expose(), b"value");
+    assert_eq!(fixture.1.load(Ordering::SeqCst), 1);
 }
 
 #[test]

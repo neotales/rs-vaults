@@ -16,3 +16,4 @@ metrics = "0.24"
 tracing = "0.1"
 percent-encoding = "2"
 zeroize = { version = "1.9", features = ["derive"] }
+getrandom = "0.3"

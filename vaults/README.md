@@ -20,7 +20,11 @@ cargo add neotales-vaults neotales-vaults-core neotales-vaults-os
 
 **Register a driver.** Create a `Registry`, then call `register` with a
 configured core `Client`. `get_uri("nv://work/secrets/token")` resolves the
-registered vault and reads its secret. URI query parameters are rejected.
+registered vault and reads its secret. Add `?ensure=1&size=30` to generate a
+missing secret. `upper`, `lower`, `digits`, `symbols`, `size`, and `chars`
+accept aliases `U`, `L`, `D`, `S`, `s`, and `c`; booleans accept `true`,
+`false`, `1`, and `0`. All classes default to enabled and size defaults to 16.
+`chars` replaces the character classes.
 
 ```rust
 use neotales_vaults::{Registry, Resource};

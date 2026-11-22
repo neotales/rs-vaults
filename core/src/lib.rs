@@ -5,7 +5,9 @@
 //! operation can still be denied by the remote service.
 #![forbid(unsafe_code)]
 
+mod generate;
 mod uri;
+pub use generate::GenerationOptions;
 pub use neotales_retry::{Delay, RetryPolicy};
 pub use uri::{ResourceKind, VaultUri};
 
@@ -22,6 +24,8 @@ pub enum Capability {
     GetSecret,
     /// Write a secret.
     SetSecret,
+    /// Ensure a secret exists.
+    EnsureSecret,
     /// Replace metadata on a particular secret version.
     UpdateSecretMetadata,
     /// Read a certificate.
@@ -51,6 +55,7 @@ impl Capability {
         match self {
             Self::GetSecret => "get_secret",
             Self::SetSecret => "set_secret",
+            Self::EnsureSecret => "ensure_secret",
             Self::UpdateSecretMetadata => "update_secret_metadata",
             Self::GetCertificate => "get_certificate",
             Self::SetCertificate => "set_certificate",
@@ -238,6 +243,33 @@ pub struct RemoveOptions {
 pub trait Driver: Send + Sync {
     /// Whether this driver implements an operation.
     fn supports(&self, capability: Capability) -> bool;
+    /// Whether the default `set_secret` can create an absent resource.
+    fn can_create_secret(&self) -> bool {
+        self.supports(Capability::SetSecret)
+    }
+    /// Return the current secret or create it if the provider reports not found.
+    ///
+    /// The default read-then-write fallback is not atomic across clients.
+    /// Providers should override it with conditional creation when possible.
+    /// After a write error, the outcome may be unknown.
+    fn ensure_secret(
+        &self,
+        vault: &str,
+        name: &str,
+        value: &SecretValue,
+    ) -> Result<Response<SecretValue>> {
+        match self.get_secret(vault, name, &GetOptions::default()) {
+            Ok(existing) => Ok(existing),
+            Err(error) if error.kind == ErrorKind::NotFound => {
+                let metadata = self.set_secret(vault, name, value)?;
+                Ok(Response {
+                    value: value.clone(),
+                    metadata,
+                })
+            }
+            Err(error) => Err(error),
+        }
+    }
     /// List secret names without returning values.
     fn list_secrets(&self, _vault: &str) -> Result<Vec<String>> {
         Err(Error::new(
@@ -392,6 +424,67 @@ pub struct Client {
     driver: Arc<dyn Driver>,
     retry: Option<RetryPolicy>,
 }
+/// Return an existing secret or create it using the supplied value.
+///
+/// The fallback is not atomic across clients. A transient error is retried
+/// according to the configured policy, with another read before each write.
+pub trait EnsureSecret {
+    /// Generate and create a secret only if it is absent.
+    fn ensure_secret(
+        &self,
+        vault: &str,
+        name: &str,
+        options: &GenerationOptions,
+    ) -> Result<Response<SecretValue>>;
+    /// Return the current secret, or create and return `value` if absent.
+    fn ensure_value(
+        &self,
+        vault: &str,
+        name: &str,
+        value: &SecretValue,
+    ) -> Result<Response<SecretValue>>;
+}
+
+impl EnsureSecret for Client {
+    fn ensure_secret(
+        &self,
+        vault: &str,
+        name: &str,
+        options: &GenerationOptions,
+    ) -> Result<Response<SecretValue>> {
+        options.validate()?;
+        match self.get(vault, name) {
+            Ok(existing) => Ok(existing),
+            Err(error) if error.kind == ErrorKind::NotFound => {
+                let value = options.generate()?;
+                self.ensure_value(vault, name, &value)
+            }
+            Err(error) => Err(error),
+        }
+    }
+    fn ensure_value(
+        &self,
+        vault: &str,
+        name: &str,
+        value: &SecretValue,
+    ) -> Result<Response<SecretValue>> {
+        if !self.supports(Capability::EnsureSecret) {
+            return self.get(vault, name);
+        }
+        self.execute(
+            Capability::EnsureSecret,
+            &GetOptions::default(),
+            || match self.driver.get_secret(vault, name, &GetOptions::default()) {
+                Ok(existing) => Ok(existing),
+                Err(error) if error.kind == ErrorKind::NotFound => {
+                    self.driver.ensure_secret(vault, name, value)
+                }
+                Err(error) => Err(error),
+            },
+        )
+    }
+}
+
 impl Client {
     /// Creates a client over a configured driver.
     pub fn new(driver: impl Driver + 'static) -> Self {
@@ -415,6 +508,9 @@ impl Client {
     /// Checks the driver's declared support.
     pub fn supports(&self, capability: Capability) -> bool {
         self.driver.supports(capability)
+            || (capability == Capability::EnsureSecret
+                && self.driver.supports(Capability::GetSecret)
+                && self.driver.can_create_secret())
     }
     /// List secret names.
     pub fn list_secrets(&self, vault: &str) -> Result<Vec<String>> {

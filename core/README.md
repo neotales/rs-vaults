@@ -18,6 +18,26 @@ cargo add neotales-vaults-core
 
 ## What you can do
 
+**Ensure a secret exists.** Import `EnsureSecret` and call
+`client.ensure_secret(vault, name, &options)`. It returns the existing value,
+or generates and creates a new one only after a `NotFound` error. Transient failures use the
+configured retry policy, checking for the value again before each attempt.
+The generic read-then-write fallback is not atomic: a concurrent writer can
+be overwritten, and a provider may report an inactive secret as not found.
+Drivers with conditional creation provide stronger protection. Some providers
+cannot create a missing secret through their current driver, including the
+Bitwarden CLI driver, which addresses items by server-assigned UUID.
+
+```rust
+use neotales_vaults_core::{Client, EnsureSecret, GenerationOptions};
+
+fn ensure_token(client: &Client) -> Result<(), Box<dyn std::error::Error>> {
+    let token = client.ensure_secret("work", "token", &GenerationOptions::default())?;
+    println!("Loaded {} bytes", token.value.expose().len());
+    Ok(())
+}
+```
+
 **List names and remove resources.** `Client::list_secrets`,
 `list_certificates`, and `list_keys` return names only. The corresponding
 remove methods accept `RemoveOptions` with `purge`, `version`, and

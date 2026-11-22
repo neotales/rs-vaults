@@ -2,8 +2,8 @@
 #![forbid(unsafe_code)]
 
 use core::{
-    Certificate, Client, Driver, Error, ErrorKind, GetOptions, Key, ResourceKind, Response, Result,
-    SecretValue, VaultUri,
+    Certificate, Client, Driver, EnsureSecret, Error, ErrorKind, GenerationOptions, GetOptions,
+    Key, ResourceKind, Response, Result, SecretValue, VaultUri,
 };
 pub use neotales_vaults_core as core;
 use std::{collections::HashMap, sync::Arc};
@@ -63,16 +63,22 @@ impl Registry {
             .ok_or_else(|| Error::new(ErrorKind::NotFound, "vault is not registered"))
     }
 
-    /// Resolves and reads a URI. Query parameters are rejected until defined.
+    /// Resolves and reads a URI, optionally ensuring a generated secret exists.
     pub fn get_uri(&self, uri: &str) -> Result<Resource> {
         let uri: VaultUri = uri.parse()?;
-        if !uri.params.is_empty() {
+        let (ensure, generation) = generation_query(&uri.params)?;
+        if ensure && (uri.kind != ResourceKind::Secret || uri.version.is_some()) {
             return Err(Error::new(
                 ErrorKind::InvalidInput,
-                "URI query parameters are not supported",
+                "ensure requires an unversioned secret URI",
             ));
         }
         let client = self.client(&uri.vault)?;
+        if ensure {
+            return client
+                .ensure_secret(&uri.vault, &uri.name, &generation)
+                .map(Resource::Secret);
+        }
         let options = GetOptions {
             version: uri.version,
             ..GetOptions::default()
@@ -89,4 +95,50 @@ impl Registry {
                 .map(Resource::Key),
         }
     }
+}
+
+fn generation_query(params: &[(String, String)]) -> Result<(bool, GenerationOptions)> {
+    let invalid = || Error::new(ErrorKind::InvalidInput, "invalid secret generation query");
+    let mut ensure = false;
+    let mut options = GenerationOptions::default();
+    let mut seen = std::collections::HashSet::new();
+    for (key, value) in params {
+        let key = match key.as_str() {
+            "ensure" => "ensure",
+            "upper" | "U" => "upper",
+            "lower" | "L" => "lower",
+            "digits" | "digit" | "D" => "digits",
+            "symbols" | "special" | "S" => "symbols",
+            "size" | "s" => "size",
+            "chars" | "c" => "chars",
+            _ => return Err(invalid()),
+        };
+        if !seen.insert(key) {
+            return Err(invalid());
+        }
+        match key {
+            "size" => options.size = value.parse().map_err(|_| invalid())?,
+            "chars" => options.chars = Some(value.clone()),
+            _ => {
+                let flag = match value.as_str() {
+                    "1" | "true" => true,
+                    "0" | "false" => false,
+                    _ => return Err(invalid()),
+                };
+                match key {
+                    "ensure" => ensure = flag,
+                    "upper" => options.upper = flag,
+                    "lower" => options.lower = flag,
+                    "digits" => options.digits = flag,
+                    "symbols" => options.symbols = flag,
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+    if !ensure && seen.iter().any(|key| *key != "ensure") {
+        return Err(invalid());
+    }
+    options.validate().map_err(|_| invalid())?;
+    Ok((ensure, options))
 }
