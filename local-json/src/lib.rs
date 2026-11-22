@@ -423,6 +423,7 @@ impl Driver for LocalJsonDriver {
             capability,
             Capability::GetSecret
                 | Capability::SetSecret
+                | Capability::EnsureSecret
                 | Capability::GetCertificate
                 | Capability::SetCertificate
                 | Capability::GetKey
@@ -435,6 +436,46 @@ impl Driver for LocalJsonDriver {
                 | Capability::RemoveCertificate
                 | Capability::RemoveKey
         )
+    }
+    fn ensure_secret(
+        &self,
+        vault: &str,
+        name: &str,
+        value: &SecretValue,
+    ) -> Result<Response<SecretValue>> {
+        self.validate(vault, name)?;
+        let _lock = self.lock()?;
+        let mut doc = self.read(true)?;
+        if doc.secrets.contains_key(name) {
+            return self.get_value(Kind::Secret, vault, name, &GetOptions::default());
+        }
+        if value.expose().len() > MAX_VALUE {
+            return Err(err(ErrorKind::InvalidInput, "secret exceeds size limit"));
+        }
+        let version = uuid::Uuid::now_v7().to_string();
+        let metadata = SecretMetadata::default();
+        doc.secrets.insert(
+            name.to_owned(),
+            Versions {
+                latest: version.clone(),
+                versions: [(
+                    version.clone(),
+                    Record::Current {
+                        value: STANDARD.encode(value.expose()),
+                        metadata: (&metadata).into(),
+                    },
+                )]
+                .into(),
+            },
+        );
+        self.write(&doc)?;
+        Ok(Response {
+            value: value.clone(),
+            metadata: Metadata {
+                version: Some(version),
+                secret: Some(metadata),
+            },
+        })
     }
     fn list_secrets(&self, vault: &str) -> Result<Vec<String>> {
         self.list_names(vault, Kind::Secret)

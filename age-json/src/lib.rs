@@ -533,6 +533,7 @@ impl Driver for AgeJsonDriver {
             capability,
             Capability::GetSecret
                 | Capability::SetSecret
+                | Capability::EnsureSecret
                 | Capability::UpdateSecretMetadata
                 | Capability::GetCertificate
                 | Capability::SetCertificate
@@ -545,6 +546,51 @@ impl Driver for AgeJsonDriver {
                 | Capability::RemoveCertificate
                 | Capability::RemoveKey
         )
+    }
+
+    fn ensure_secret(
+        &self,
+        vault: &str,
+        name: &str,
+        value: &SecretValue,
+    ) -> Result<Response<SecretValue>> {
+        self.validate(vault, name)?;
+        let _lock = self.lock()?;
+        let mut document = self.read_document(true)?;
+        if document.secrets.contains_key(name) {
+            return self.read_value(Kind::Secret, vault, name, &GetOptions::default());
+        }
+        if value.expose().len() > MAX_VALUE {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "resource exceeds size limit",
+            ));
+        }
+        let version = uuid::Uuid::now_v7().to_string();
+        let metadata = SecretMetadata::default();
+        let record = self.encrypt_record(
+            Kind::Secret,
+            vault,
+            name,
+            &version,
+            &metadata,
+            value.expose(),
+        )?;
+        document.secrets.insert(
+            name.to_owned(),
+            Versions {
+                latest: version.clone(),
+                versions: [(version.clone(), record)].into(),
+            },
+        );
+        self.write_document(&document)?;
+        Ok(Response {
+            value: value.clone(),
+            metadata: Metadata {
+                version: Some(version),
+                secret: Some(metadata),
+            },
+        })
     }
 
     fn list_secrets(&self, vault: &str) -> Result<Vec<String>> {

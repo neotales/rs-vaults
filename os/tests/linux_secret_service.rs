@@ -1,7 +1,9 @@
 //! Native Secret Service test in a disposable D-Bus session and temporary home.
 #![cfg(target_os = "linux")]
 
-use neotales_vaults_core::{Capability, Client, ErrorKind, GetOptions, RemoveOptions, SecretValue};
+use neotales_vaults_core::{
+    Capability, Client, EnsureSecret, ErrorKind, GetOptions, RemoveOptions, SecretValue,
+};
 use neotales_vaults_os::{Config, OsDriver};
 use std::{
     os::unix::fs::PermissionsExt,
@@ -126,5 +128,21 @@ fn isolated_child() {
     assert_eq!(
         client.get("test", "token").unwrap_err().kind,
         ErrorKind::NotFound
+    );
+    assert_eq!(
+        client
+            .ensure_value("test", "token", &SecretValue::new(b"ensured".to_vec()))
+            .unwrap()
+            .value
+            .expose(),
+        b"ensured"
+    );
+    assert_eq!(
+        client
+            .ensure_value("test", "token", &SecretValue::new(b"ignored".to_vec()))
+            .unwrap()
+            .value
+            .expose(),
+        b"ensured"
     );
 }

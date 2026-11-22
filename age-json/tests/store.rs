@@ -1,8 +1,8 @@
 use neotales_age::AgeKey;
 use neotales_vaults_age_json::{AgeJsonDriver, Config};
 use neotales_vaults_core::{
-    Certificate, Client, ErrorKind, GetOptions, Key, RemoveOptions, SecretMetadata, SecretValue,
-    SetSecretOptions,
+    Certificate, Client, EnsureSecret, ErrorKind, GetOptions, Key, RemoveOptions, SecretMetadata,
+    SecretValue, SetSecretOptions,
 };
 use std::sync::{Arc, Barrier};
 
@@ -14,6 +14,42 @@ fn driver(path: std::path::PathBuf, key: &AgeKey) -> AgeJsonDriver {
         identities: vec![SecretValue::new(key.private_key.as_bytes().to_vec())],
     })
     .unwrap()
+}
+
+#[test]
+fn ensure_returns_existing_and_does_not_overwrite_racing_or_deleted_values() {
+    let temp = tempfile::tempdir().unwrap();
+    let c = Client::new(driver(
+        temp.path().join("vault.json"),
+        &AgeKey::generate().unwrap(),
+    ));
+    let barrier = Arc::new(Barrier::new(2));
+    let threads: Vec<_> = ["first", "second"]
+        .into_iter()
+        .map(|candidate| {
+            let c = c.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                c.ensure_value(
+                    "work",
+                    "token",
+                    &SecretValue::new(candidate.as_bytes().to_vec()),
+                )
+                .unwrap()
+            })
+        })
+        .collect();
+    let results: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+    assert_eq!(results[0], results[1]);
+    c.remove_secret("work", "token", &RemoveOptions::default())
+        .unwrap();
+    assert_eq!(
+        c.ensure_value("work", "token", &SecretValue::new(b"replacement".to_vec()))
+            .unwrap_err()
+            .kind,
+        ErrorKind::NotFound
+    );
 }
 
 #[test]

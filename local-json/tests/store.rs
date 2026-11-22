@@ -1,7 +1,7 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use neotales_vaults_core::{
-    Capability, Certificate, Client, Driver, Error, ErrorKind, GetOptions, Key, Metadata,
-    RemoveOptions, Response, SecretMetadata, SecretValue, SetSecretOptions,
+    Capability, Certificate, Client, Driver, EnsureSecret, Error, ErrorKind, GetOptions, Key,
+    Metadata, RemoveOptions, Response, SecretMetadata, SecretValue, SetSecretOptions,
 };
 use neotales_vaults_local_crypto::{Config as CryptoConfig, LocalCrypto};
 use neotales_vaults_local_json::{Config, LocalJsonDriver};
@@ -11,6 +11,29 @@ use std::{
 };
 
 struct Keys;
+
+#[test]
+fn ensure_keeps_existing_and_does_not_replace_deleted_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let client = client(dir.path().join("vault.json"), "local");
+    let created = client
+        .ensure_value("local", "name", &SecretValue::new(b"first".to_vec()))
+        .unwrap();
+    let existing = client
+        .ensure_value("local", "name", &SecretValue::new(b"other".to_vec()))
+        .unwrap();
+    assert_eq!(created, existing);
+    client
+        .remove_secret("local", "name", &RemoveOptions::default())
+        .unwrap();
+    assert_eq!(
+        client
+            .ensure_value("local", "name", &SecretValue::new(b"other".to_vec()))
+            .unwrap_err()
+            .kind,
+        ErrorKind::NotFound
+    );
+}
 
 #[test]
 fn removal_soft_deletes_or_purges_without_resurrecting_old_versions() {

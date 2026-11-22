@@ -2,7 +2,8 @@ use neotales_keepass::{
     Entry, Field, Group, KdbxFile, KdbxWriteOptions, KeePassDatabase, ProtectedValue,
 };
 use neotales_vaults_core::{
-    Capability, Certificate, Client, ErrorKind, GetOptions, Key, RemoveOptions, SecretValue,
+    Capability, Certificate, Client, EnsureSecret, ErrorKind, GetOptions, Key, RemoveOptions,
+    SecretValue,
 };
 use neotales_vaults_keepass::{Config, KeepassDriver};
 
@@ -149,6 +150,22 @@ fn opt_in_writes_preserve_other_fields_and_create_entries() {
     .with_write_options(KdbxWriteOptions::default());
     let client = Client::new(driver);
     assert!(client.supports(Capability::SetSecret));
+    assert_eq!(
+        client
+            .ensure_value("local", "ensured", &SecretValue::new(b"created".to_vec()))
+            .unwrap()
+            .value
+            .expose(),
+        b"created"
+    );
+    assert_eq!(
+        client
+            .ensure_value("local", "ensured", &SecretValue::new(b"ignored".to_vec()))
+            .unwrap()
+            .value
+            .expose(),
+        b"created"
+    );
     client
         .set_secret("local", "existing", &SecretValue::new(b"new".to_vec()))
         .unwrap();

@@ -2,8 +2,8 @@ use neotales_age::AgeKey;
 use neotales_vaults::{Registry, Resource};
 use neotales_vaults_age_sqlite::{AgeSqliteDriver, Config};
 use neotales_vaults_core::{
-    Certificate, Client, ErrorKind, GetOptions, Key, RemoveOptions, SecretMetadata, SecretValue,
-    SetSecretOptions,
+    Certificate, Client, EnsureSecret, ErrorKind, GetOptions, Key, RemoveOptions, SecretMetadata,
+    SecretValue, SetSecretOptions,
 };
 use std::sync::{Arc, Barrier};
 
@@ -17,6 +17,42 @@ fn client(path: &std::path::Path, key: &AgeKey) -> Client {
         })
         .unwrap(),
     )
+}
+
+#[test]
+fn ensure_racing_writers_share_one_value_and_do_not_restore_deleted_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let c = client(
+        &dir.path().join("vault.sqlite"),
+        &AgeKey::generate().unwrap(),
+    );
+    let barrier = Arc::new(Barrier::new(2));
+    let threads: Vec<_> = ["first", "second"]
+        .into_iter()
+        .map(|candidate| {
+            let c = c.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                c.ensure_value(
+                    "work",
+                    "token",
+                    &SecretValue::new(candidate.as_bytes().to_vec()),
+                )
+                .unwrap()
+            })
+        })
+        .collect();
+    let results: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+    assert_eq!(results[0], results[1]);
+    c.remove_secret("work", "token", &RemoveOptions::default())
+        .unwrap();
+    assert_eq!(
+        c.ensure_value("work", "token", &SecretValue::new(b"replacement".to_vec()))
+            .unwrap_err()
+            .kind,
+        ErrorKind::NotFound
+    );
 }
 
 #[test]

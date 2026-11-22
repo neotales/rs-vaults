@@ -564,6 +564,7 @@ impl Driver for AgeSqliteDriver {
             capability,
             Capability::GetSecret
                 | Capability::SetSecret
+                | Capability::EnsureSecret
                 | Capability::UpdateSecretMetadata
                 | Capability::GetCertificate
                 | Capability::SetCertificate
@@ -576,6 +577,76 @@ impl Driver for AgeSqliteDriver {
                 | Capability::RemoveCertificate
                 | Capability::RemoveKey
         )
+    }
+    fn ensure_secret(
+        &self,
+        vault: &str,
+        name: &str,
+        value: &SecretValue,
+    ) -> Result<Response<SecretValue>> {
+        self.validate(vault, name)?;
+        let mut db = self.open(true, true)?;
+        let tx = db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| provider("vault transaction failed"))?;
+        let exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM versions WHERE kind=?1 AND name=?2)",
+                params![Kind::Secret.name(), name],
+                |row| row.get(0),
+            )
+            .map_err(|_| provider("resource read failed"))?;
+        if exists {
+            return self.read_value(Kind::Secret, vault, name, &GetOptions::default());
+        }
+        // A stale latest pointer still denotes a previously existing resource.
+        let has_pointer: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM latest WHERE kind=?1 AND name=?2)",
+                params![Kind::Secret.name(), name],
+                |row| row.get(0),
+            )
+            .map_err(|_| provider("resource read failed"))?;
+        if has_pointer {
+            return Err(Error::new(
+                ErrorKind::NotFound,
+                "resource version not found",
+            ));
+        }
+        if value.expose().len() > MAX_VALUE {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "resource exceeds size limit",
+            ));
+        }
+        let version = uuid::Uuid::now_v7().to_string();
+        let metadata = SecretMetadata::default();
+        let encrypted = self.encrypt_value(
+            Kind::Secret,
+            vault,
+            name,
+            &version,
+            value.expose(),
+            &metadata,
+        )?;
+        tx.execute(
+            "INSERT INTO versions(kind,name,version,value) VALUES (?1,?2,?3,?4)",
+            params![Kind::Secret.name(), name, version, encrypted],
+        )
+        .map_err(|_| provider("resource write failed"))?;
+        tx.execute(
+            "INSERT INTO latest(kind,name,version) VALUES (?1,?2,?3)",
+            params![Kind::Secret.name(), name, version],
+        )
+        .map_err(|_| provider("resource write failed"))?;
+        tx.commit().map_err(|_| provider("vault commit failed"))?;
+        Ok(Response {
+            value: value.clone(),
+            metadata: Metadata {
+                version: Some(version),
+                secret: Some(metadata),
+            },
+        })
     }
     fn list_secrets(&self, vault: &str) -> Result<Vec<String>> {
         self.list_names(vault, Kind::Secret)
